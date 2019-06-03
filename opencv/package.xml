@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<package>
+  <name>opencv</name>
+
+  <version>0.15.0</version>
+
+  <description>
+  	opencv package.
+	The Purpose of this Packge is Image Processing.
+  </description>
+
+  <author>Suho Kim</author>
+  <maintainer email="suho0515@gmail.com">Suho Kim</maintainer>
+
+  <license>BSD</license>
+
+  <url>http://wiki.ros.org/cv_bridge/Tutorials/UsingCvBridgeToConvertBetweenROSImagesAndOpenCVImages</url>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <build_depend>actionlib</build_depend>
+  <build_depend>camera_control_msgs</build_depend>
+  <build_depend>camera_info_manager</build_depend>
+  <build_depend>cv_bridge</build_depend>
+  <build_depend>diagnostic_updater</build_depend>
+  <build_depend>image_geometry</build_depend>
+  <build_depend>image_transport</build_depend>
+  <build_depend>pylon</build_depend>
+  <build_depend>roscpp</build_depend>
+  <build_depend>sensor_msgs</build_depend>
+  <build_depend>roslaunch</build_depend>
+  <!--build_depend>std_srvs</build_depend-->
+  <build_depend>roslint</build_depend>
+
+  <run_depend>actionlib</run_depend>
+  <run_depend>camera_control_msgs</run_depend>
+  <run_depend>camera_info_manager</run_depend>
+  <run_depend>diagnostic_updater</run_depend>
+  <run_depend>cv_bridge</run_depend>
+  <run_depend>image_geometry</run_depend>
+  <run_depend>image_transport</run_depend>
+  <run_depend>pylon</run_depend>
+  <run_depend>roscpp</run_depend>
+  <run_depend>roslaunch</run_depend>
+  <run_depend>sensor_msgs</run_depend>
+  <!--run_depend>std_srvs</run_depend-->
+
+</package>
+
