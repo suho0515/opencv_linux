@@ -8,6 +8,12 @@
 #include "opencv2/imgproc.hpp"
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/highgui.hpp"
+#include "opencv/MsgCenter.h"
+#include "opencv/MsgAngle.h"
+#include "opencv/MsgDetection.h"
+
+#include "std_msgs/Float32.h"
+#include <deque>
 
 #include <iostream>
 #include <math.h>
@@ -54,6 +60,31 @@ class Squares
   image_transport::Publisher image_pub_;
   vector<vector<Point> > squares;
 
+  ros::Publisher ros_center;
+  ros::Publisher ros_angle;
+  ros::Publisher ros_detection;
+  opencv::MsgCenter msgCenter;
+  opencv::MsgAngle msgAngle;
+  opencv::MsgDetection msgDetection;
+  
+  deque<bool> qDetection;
+  int sumDetection;
+  int avgDetection;
+
+  deque<int> qAngle;
+  int sumAngle;
+  int avgAngle;
+
+  deque<int> qCenterX;
+  int sumCenterX;
+  int avgCenterX;
+
+  deque<int> qCenterY;
+  int sumCenterY;
+  int avgCenterY;
+
+  int avg_filtering_fector;
+
 public:
   Squares()
     : it_(nh_)
@@ -61,9 +92,13 @@ public:
     // Subscrive to input video feed and publish output video feed
     image_sub_ = it_.subscribe("/pylon_camera_node/image_raw", 1,
       &Squares::findSquares, this);
-    image_pub_ = it_.advertise("/Squares/output_video", 1);
+    image_pub_ = it_.advertise("/squares/output_video", 1);
 
-	
+    ros_center = nh_.advertise<opencv::MsgCenter>("center",100);
+    ros_angle = nh_.advertise<opencv::MsgAngle>("angle",100);
+    ros_detection = nh_.advertise<opencv::MsgDetection>("detection",100);
+    
+    
 
     cv::namedWindow(OPENCV_WINDOW);
   }
@@ -93,7 +128,14 @@ public:
     pyrDown(cv_ptr->image, pyr, Size(cv_ptr->image.cols/2, cv_ptr->image.rows/2));
     pyrUp(pyr, timg, cv_ptr->image.size());
     vector<vector<Point> > contours;
+    Point2f center;
+    float radius;
+    msgDetection.detection = 0;
+    sumDetection = 0;
     
+    
+
+
     // find squares in every color plane of the image
     for( int c = 0; c < 3; c++ )
     {
@@ -123,11 +165,18 @@ public:
 
             // find contours and store them all as a list
             findContours(gray, contours, RETR_LIST, CHAIN_APPROX_SIMPLE);
-  
-            vector<Point> approx;
-            Point2f center;
-            float radius;
 
+            /// Find the rotated rectangles and ellipses for each contour
+            vector<RotatedRect> minRect( contours.size() );
+
+             //for( int i = 0; i < contours.size(); i++ )
+             //{
+               //if( contours[i].size() > 5 )
+                 //{ minEllipse[i] = fitEllipse( Mat(contours[i]) ); }
+             //}
+
+            vector<Point> approx;
+            
             // test each contour
             for( size_t i = 0; i < contours.size(); i++ )
             {
@@ -135,7 +184,9 @@ public:
                 // to the contour perimeter
                 approxPolyDP(Mat(contours[i]), approx, arcLength(Mat(contours[i]), true)*0.02, true);
 
-                minEnclosingCircle(approx,center, radius);          
+                minRect[i] = minAreaRect( approx ); // Function to get Angle
+
+                minEnclosingCircle(approx,center, radius);
                 
                 // square contours should have 4 vertices after approximation
                 // relatively large area (to filter out noisy contours)
@@ -144,9 +195,11 @@ public:
                 // area may be positive or negative - in accordance with the
                 // contour orientation
                 if( approx.size() == 4 &&
-                    fabs(contourArea(Mat(approx))) > 1000 &&
+                    fabs(contourArea(Mat(approx))) > 5000 &&
+                    fabs(contourArea(Mat(approx))) < 6000 &&
                     isContourConvex(Mat(approx)) &&
-                    radius > 240 && radius < 250 )
+                    radius > 45 && radius < 60 &&
+		    center.x >150 && center.x <400)
                 {
                     
                     double maxCosine = 0;
@@ -161,10 +214,79 @@ public:
                     // if cosines of all angles are small
                     // (all angles are ~90 degree) then write quandrange
                     // vertices to resultant sequence
-                    if( maxCosine < 0.3 )
+                    if( maxCosine < 0.3 ) {		
                         squares.push_back(approx);
-                        ROS_INFO("radius : %f", radius);
-                        ROS_INFO("center : %f, %f", center.x, center.y);
+
+                        // Draw an example circle on the video stream
+                        cv::circle(cv_ptr->image, cv::Point(center.x, center.y), 10, CV_RGB(255,0,0));
+                        
+                        //ROS_INFO("fabs(contourArea(Mat(approx))) : %f", fabs(contourArea(Mat(approx)))); 
+                        //ROS_INFO("radius : %f", radius);
+                        //ROS_INFO("every center : %f, %f", center.x, center.y);
+
+
+			// Average Filtering for 'detection', 'center', 'angle'.
+
+                        msgAngle.angle=-(minRect[i].angle);
+
+			msgCenter.x=center.x;
+                        msgCenter.y=center.y;
+			
+			/*
+			avg_filtering_fector = 20;			
+
+			if(qAngle.size() < avg_filtering_fector) {
+				qAngle.push_back(msgAngle.angle);
+				qCenterX.push_back(msgCenter.x);
+				qCenterY.push_back(msgCenter.y);
+			} 
+			else if(qAngle.size() >= avg_filtering_fector) {
+				qAngle.pop_front();
+				qCenterX.pop_front();
+				qCenterY.pop_front();
+
+				qAngle.push_back(msgAngle.angle);	
+				qCenterX.push_back(msgCenter.x);
+				qCenterY.push_back(msgCenter.y);
+
+				sumAngle = 0;
+				sumCenterX = 0;
+				sumCenterY = 0;
+
+				avgAngle = 0;
+				avgCenterX = 0;
+				avgCenterY = 0;
+
+				for(int i=0;i<avg_filtering_fector;i++)
+				{
+					sumAngle += qAngle[i];
+					sumCenterX += qCenterX[i];
+					sumCenterY += qCenterY[i];
+				}
+
+				avgAngle = sumAngle/avg_filtering_fector;
+				avgCenterX = sumCenterX/avg_filtering_fector;
+				avgCenterY = sumCenterY/avg_filtering_fector;
+
+				msgAngle.angle = avgAngle;
+				msgCenter.x = avgCenterX;
+				msgCenter.y = avgCenterY;
+				*/
+
+				msgDetection.detection++;
+				
+				ros_angle.publish(msgAngle);
+				ros_center.publish(msgCenter);
+
+				
+				//ROS_INFO("angle : %f", msgAngle.angle);
+				//ROS_INFO("center : %f, %f", msgCenter.x, msgCenter.y);
+			//}
+			
+                        //ROS_INFO("cv_ptr->image.cols : %d", cv_ptr->image.cols);
+                        //ROS_INFO("cv_ptr->image.rows : %d", cv_ptr->image.rows);
+
+                    }
                 }
 
             }
@@ -178,6 +300,46 @@ public:
         int n = (int)squares[i].size();
         polylines(cv_ptr->image, &p, &n, 1, true, Scalar(0,255,0), 3, LINE_AA);
     }
+
+    
+    /*
+    if(msgDetection.detection > 1) {
+	if(qDetection.size() < 10) {
+		qDetection.push_back(true);
+	} 
+	else if(qDetection.size() >= 10) {
+		qDetection.pop_front();
+		qDetection.push_back(true);
+	}
+    }
+    else {
+	if(qDetection.size() < 10) {
+		qDetection.push_back(false);
+	} 
+	else if(qDetection.size() >= 10) {
+		qDetection.pop_front();
+		qDetection.push_back(false);
+	}
+    }
+
+    for (int i=0; i<10; i++) {
+    	//cout << "detection[" << i << "] : " << qDetection[i] << endl;
+	sumDetection += qDetection[i];  
+    }
+
+    if(sumDetection > 8) {
+	ros_detection.publish(msgDetection);
+	//ROS_INFO("detection : %d", msgDetection.detection);
+
+	ros_angle.publish(msgAngle);
+	ros_center.publish(msgCenter);
+
+	// Draw an example circle on the video stream
+        cv::circle(cv_ptr->image, cv::Point(msgCenter.x, msgCenter.y), 10, CV_RGB(255,0,0));
+    }
+    */
+
+    ros_detection.publish(msgDetection);
 
     // Update GUI Window
     cv::imshow(OPENCV_WINDOW, cv_ptr->image);
